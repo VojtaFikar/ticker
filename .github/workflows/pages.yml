@@ -1,0 +1,42 @@
+name: Web a počasí
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '*/30 * * * *'   # každých 30 minut stáhne novou předpověď
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stáhnout počasí (Schwetzingen)
+        run: |
+          mkdir -p site
+          cp index.html site/
+          curl -sf --retry 3 --retry-delay 5 \
+            "https://api.open-meteo.com/v1/forecast?latitude=49.38&longitude=8.57&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FBerlin&forecast_days=4" \
+            -o site/weather.json \
+          || echo '{"error":true,"reason":"stažení předpovědi selhalo"}' > site/weather.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
