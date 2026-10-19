@@ -8,113 +8,151 @@
 <meta name="apple-mobile-web-app-title" content="BTC">
 <title>BTC Ticker</title>
 <!--
-  BTC ticker – verze pro staré iPady (iOS 9, Safari 9).
-  Pouze ES5 JavaScript, XMLHttpRequest, žádný WebSocket, žádné moderní CSS.
-  Data: Kraken REST API (čisté USD páry).
+  BTC ticker + počasí – verze pro staré iPady (iOS 9, Safari 9).
+  Pouze ES5 JavaScript, XMLHttpRequest, žádné moderní CSS.
+  Data: Kraken REST API (čisté USD páry), Open-Meteo (počasí, bez klíče).
 -->
 <style>
 html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #f2f2f2;
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden;
   -webkit-user-select: none; -webkit-text-size-adjust: 100%; }
-#app { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  padding: 14px 22px 10px; box-sizing: border-box;
-  display: -webkit-box; display: -webkit-flex; display: flex;
+.col { display: -webkit-box; display: -webkit-flex; display: flex;
   -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
-
-#top { display: -webkit-box; display: -webkit-flex; display: flex;
-  -webkit-box-pack: justify; -webkit-justify-content: space-between; justify-content: space-between;
-  -webkit-box-align: center; -webkit-align-items: center; align-items: center;
-  font-size: 17px; color: #8a8a8f; height: 28px; }
-#pair { color: #c7c7cc; font-weight: 500; letter-spacing: 0.02em; }
-#status { display: -webkit-box; display: -webkit-flex; display: flex;
+.row { display: -webkit-box; display: -webkit-flex; display: flex;
   -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+.grow { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-height: 0; }
+.hidden { display: none !important; }
+
+#app { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  padding: 14px 22px 10px; box-sizing: border-box; }
+
+#top { -webkit-box-pack: justify; -webkit-justify-content: space-between; justify-content: space-between;
+  font-size: 17px; color: #8a8a8f; height: 28px; }
+#label { color: #c7c7cc; font-weight: 500; letter-spacing: 0.02em; }
 #dot { width: 10px; height: 10px; border-radius: 5px; background: #555; margin-right: 8px; }
 
-#priceRow { display: -webkit-box; display: -webkit-flex; display: flex;
-  -webkit-box-align: center; -webkit-align-items: center; align-items: center;
-  margin: 1vh 0 1.5vh; }
+/* --- ticker --- */
+#priceRow { margin: 1vh 0 1.5vh; }
 #logo { width: 10vw; height: 10vw; max-width: 120px; max-height: 120px; margin-right: 2.2vw;
   -webkit-flex-shrink: 0; flex-shrink: 0; }
-#price { font-size: 16.5vw; font-weight: 300; line-height: 1; letter-spacing: -0.02em;
-  white-space: nowrap; }
+#price { font-size: 16.5vw; font-weight: 300; line-height: 1; letter-spacing: -0.02em; white-space: nowrap; }
 #side { margin-left: 1.8vw; white-space: nowrap; }
 #cur { font-size: 4.2vw; color: #6e6e73; font-weight: 300; line-height: 1.1; }
-#change { font-size: 3vw; font-weight: 400; margin-top: 0.6vw; }
+#change { font-size: 3vw; margin-top: 0.6vw; }
 .up { color: #34c759; }
 .down { color: #ff453a; }
-
-#chartWrap { position: relative; -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-height: 100px; }
+#chartWrap { position: relative; min-height: 100px; }
 #chart { position: absolute; top: 0; left: 0; }
 #chartLabel { position: absolute; top: 2px; left: 0; font-size: 14px; color: #6e6e73; }
 
+/* --- počasí --- */
+#wNow { -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center; }
+#wNowIcon { width: 24vw; height: 24vw; margin-right: 1vw; }
+#wNowIcon svg, .dIcon svg { width: 100%; height: 100%; display: block; }
+#wTemp { font-size: 17vw; font-weight: 200; line-height: 1; letter-spacing: -0.03em; margin-right: 3vw; }
+#wDesc { font-size: 3.6vw; font-weight: 400; }
+#wRange { font-size: 3vw; margin-top: 1vw; font-weight: 300; }
+#wExtra { font-size: 2.2vw; color: #8a8a8f; margin-top: 1vw; line-height: 1.5; }
+.min { color: #6e6e73; }
+#wDays { border-top: 1px solid #2c2c2e; padding-top: 2vh; }
+.day { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; text-align: center; }
+.day + .day { border-left: 1px solid #2c2c2e; }
+.dName { font-size: 2.6vw; color: #c7c7cc; }
+.dIcon { width: 11vw; height: 11vw; margin: 1vw auto; }
+.dTemp { font-size: 3.4vw; font-weight: 300; }
+.dRain { font-size: 2vw; color: #64d2ff; margin-top: 0.5vw; }
+
 #msg { font-size: 14px; color: #ff9f0a; min-height: 18px; padding-top: 4px; }
+#dim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000;
+  pointer-events: none; z-index: 10; }
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="top">
-    <div id="pair">BTC / USD</div>
-    <div id="status"><div id="dot"></div><span id="time">--:--:--</span></div>
+<div id="app" class="col">
+  <div id="top" class="row">
+    <div id="label"></div>
+    <div class="row"><div id="dot"></div><span id="time">--:--</span></div>
   </div>
 
-  <div id="priceRow">
-    <svg id="logo" viewBox="0 0 64 64">
-      <circle cx="32" cy="32" r="32" fill="#f7931a"/>
-      <g id="btcMark" transform="rotate(14 32 32)" fill="#fff">
-        <rect x="25" y="11" width="3.6" height="9"/><rect x="31.5" y="11" width="3.6" height="9"/>
-        <rect x="25" y="43" width="3.6" height="9"/><rect x="31.5" y="43" width="3.6" height="9"/>
-        <text x="33" y="45" text-anchor="middle" font-size="37" font-weight="700"
-          font-family="Helvetica Neue, Helvetica, Arial, sans-serif">B</text>
-      </g>
-      <text id="logoText" x="32" y="45" text-anchor="middle" font-size="36" font-weight="700"
-        fill="#fff" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"></text>
-    </svg>
-    <div id="price">—</div>
-    <div id="side">
-      <div id="cur">$</div>
-      <div id="change"></div>
+  <!-- obrazovka: ticker -->
+  <div id="tickerScreen" class="col grow">
+    <div id="priceRow" class="row">
+      <svg id="logo" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="32" fill="#f7931a"/>
+        <g id="btcMark" transform="rotate(14 32 32)" fill="#fff">
+          <rect x="25" y="11" width="3.6" height="9"/><rect x="31.5" y="11" width="3.6" height="9"/>
+          <rect x="25" y="43" width="3.6" height="9"/><rect x="31.5" y="43" width="3.6" height="9"/>
+          <text x="33" y="45" text-anchor="middle" font-size="37" font-weight="700"
+            font-family="Helvetica Neue, Helvetica, Arial, sans-serif">B</text>
+        </g>
+        <text id="logoText" x="32" y="45" text-anchor="middle" font-size="36" font-weight="700"
+          fill="#fff" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"></text>
+      </svg>
+      <div id="price">—</div>
+      <div id="side"><div id="cur">$</div><div id="change"></div></div>
+    </div>
+    <div id="chartWrap" class="grow">
+      <canvas id="chart"></canvas>
+      <div id="chartLabel"></div>
     </div>
   </div>
 
-  <div id="chartWrap">
-    <canvas id="chart"></canvas>
-    <div id="chartLabel"></div>
+  <!-- obrazovka: počasí -->
+  <div id="weatherScreen" class="col grow hidden">
+    <div id="wNow" class="row grow">
+      <div id="wNowIcon"></div>
+      <div id="wTemp">—</div>
+      <div>
+        <div id="wDesc"></div>
+        <div id="wRange"></div>
+        <div id="wExtra"></div>
+      </div>
+    </div>
+    <div id="wDays" class="row"></div>
   </div>
 
-  <div id="msg">Načítám data z Krakenu…</div>
+  <div id="msg"></div>
 </div>
+<div id="dim" class="hidden"></div>
 
 <script>
 /* ============ NASTAVENÍ ============ */
 var CONFIG = {
   tickers: [
     { label: 'BTC / USD', restPair: 'XBTUSD', symbol: 'btc', color: '#f7931a', decimals: 0 }
-    // Další tickery pro rotaci, stačí odkomentovat:
+    // Další tickery, stačí odkomentovat (každý dostane vlastní obrazovku):
     // ,{ label: 'ETH / USD', restPair: 'ETHUSD', symbol: '\u039E', color: '#627eea', decimals: 0 }
-    // ,{ label: 'SOL / USD', restPair: 'SOLUSD', symbol: 'S', color: '#14f195', decimals: 2 }
   ],
-  rotateSeconds: 30,        // jak dlouho je každý ticker na obrazovce
-  priceRefreshSeconds: 10,  // jak často se stahuje cena
-  chartRefreshSeconds: 300, // jak často se stahuje graf a 24h změna
+  screenSeconds: 30,        // jak dlouho je každá obrazovka vidět
+  priceRefreshSeconds: 10,
+  chartRefreshSeconds: 300,
   candleInterval: 10080,    // minuty: 10080 = týdenní svíčky, 1440 = denní
-  candleCount: 52,          // počet svíček v grafu
-  chartLabel: 'Týdenní svíčky, 1 rok'
+  candleCount: 52,
+  chartLabel: 'Týdenní svíčky, 1 rok',
+
+  weather: { enabled: true, place: 'Schwetzingen', lat: 49.38, lon: 8.57, refreshMinutes: 15 },
+
+  dim: { from: 22, to: 7, opacity: 0.85 }  // noční ztmavení (hodiny, 0–23)
 };
 
 /* ============ STAV ============ */
-var API = 'https://api.kraken.com/0/public/';
-var state = [];
-var active = 0;
-for (var i = 0; i < CONFIG.tickers.length; i++) {
+var KRAKEN = 'https://api.kraken.com/0/public/';
+var state = [], i;
+for (i = 0; i < CONFIG.tickers.length; i++) {
   state.push({ price: null, ref24: null, candles: [], updated: 0, error: null });
 }
+var wx = { data: null, updated: 0, error: null };
+
+var screens = [];
+for (i = 0; i < CONFIG.tickers.length; i++) screens.push({ type: 'ticker', idx: i });
+if (CONFIG.weather.enabled) screens.push({ type: 'weather' });
+var scr = 0;
 
 /* ============ POMOCNÉ FUNKCE ============ */
 function $(id) { return document.getElementById(id); }
 
 function getJSON(url, ok, fail) {
-  var x = new XMLHttpRequest();
-  var done = false;
+  var x = new XMLHttpRequest(), done = false;
   x.open('GET', url, true);
   x.onreadystatechange = function () {
     if (x.readyState !== 4 || done) return;
@@ -122,8 +160,7 @@ function getJSON(url, ok, fail) {
     if (x.status === 200) {
       var j;
       try { j = JSON.parse(x.responseText); } catch (e) { fail('Neplatná odpověď serveru'); return; }
-      if (j.error && j.error.length) { fail('Kraken: ' + j.error.join(', ')); return; }
-      ok(j.result);
+      ok(j);
     } else if (x.status === 0) {
       fail('Spojení selhalo (síť nebo blokování požadavku)');
     } else {
@@ -134,10 +171,13 @@ function getJSON(url, ok, fail) {
   x.send();
 }
 
-function resultData(r) {
-  var keys = Object.keys(r);
-  for (var i = 0; i < keys.length; i++) { if (keys[i] !== 'last') return r[keys[i]]; }
-  return null;
+function kraken(path, ok, fail) {
+  getJSON(KRAKEN + path, function (j) {
+    if (j.error && j.error.length) { fail('Kraken: ' + j.error.join(', ')); return; }
+    var keys = Object.keys(j.result);
+    for (var k = 0; k < keys.length; k++) { if (keys[k] !== 'last') { ok(j.result[keys[k]]); return; } }
+    fail('Kraken: prázdná odpověď');
+  }, fail);
 }
 
 function fmt(n, d) {
@@ -145,18 +185,25 @@ function fmt(n, d) {
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '\u2009');
   return parts.join(',');
 }
-
 function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function clock(ms, sec) {
+  var d = new Date(ms);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + (sec ? ':' + pad(d.getSeconds()) : '');
+}
+function setDot(updated, maxAge, error) {
+  var age = (new Date().getTime() - updated) / 1000, dot = $('dot');
+  if (error && age > maxAge) dot.style.background = '#ff453a';
+  else if (!updated || age > maxAge) dot.style.background = '#ff9f0a';
+  else dot.style.background = '#34c759';
+}
 
-/* ============ DATA ============ */
+/* ============ DATA: KRAKEN ============ */
 function loadPrice(idx) {
   var t = CONFIG.tickers[idx], s = state[idx];
-  getJSON(API + 'Ticker?pair=' + t.restPair, function (r) {
-    var d = resultData(r);
+  kraken('Ticker?pair=' + t.restPair, function (d) {
     s.price = parseFloat(d.c[0]);
     s.updated = new Date().getTime();
     s.error = null;
-    // poslední svíčka sleduje živou cenu
     var c = s.candles;
     if (c.length) {
       var last = c[c.length - 1];
@@ -164,44 +211,137 @@ function loadPrice(idx) {
       if (s.price > last.h) last.h = s.price;
       if (s.price < last.l) last.l = s.price;
     }
-    if (idx === active) render();
-  }, function (err) { s.error = err; if (idx === active) render(); });
+    renderIf('ticker', idx);
+  }, function (err) { s.error = err; renderIf('ticker', idx); });
 }
 
 function loadChart(idx) {
   var t = CONFIG.tickers[idx], s = state[idx];
-  getJSON(API + 'OHLC?pair=' + t.restPair + '&interval=' + CONFIG.candleInterval, function (r) {
-    var rows = resultData(r), out = [];
-    var start = Math.max(0, rows.length - CONFIG.candleCount);
-    for (var i = start; i < rows.length; i++) {
-      out.push({ t: rows[i][0], o: parseFloat(rows[i][1]), h: parseFloat(rows[i][2]),
-                 l: parseFloat(rows[i][3]), c: parseFloat(rows[i][4]) });
+  kraken('OHLC?pair=' + t.restPair + '&interval=' + CONFIG.candleInterval, function (rows) {
+    var out = [], start = Math.max(0, rows.length - CONFIG.candleCount);
+    for (var k = start; k < rows.length; k++) {
+      out.push({ o: parseFloat(rows[k][1]), h: parseFloat(rows[k][2]),
+                 l: parseFloat(rows[k][3]), c: parseFloat(rows[k][4]) });
     }
     s.candles = out;
-    if (idx === active) render();
-  }, function (err) { s.error = err; if (idx === active) render(); });
+    renderIf('ticker', idx);
+  }, function (err) { s.error = err; renderIf('ticker', idx); });
 
-  // 24h změna: cena před 24 hodinami z hodinových svíček
-  getJSON(API + 'OHLC?pair=' + t.restPair + '&interval=60', function (r) {
-    var rows = resultData(r);
+  kraken('OHLC?pair=' + t.restPair + '&interval=60', function (rows) {
     var target = Math.floor(new Date().getTime() / 1000) - 86400;
-    for (var i = rows.length - 1; i >= 0; i--) {
-      if (rows[i][0] <= target) { s.ref24 = parseFloat(rows[i][4]); break; }
+    for (var k = rows.length - 1; k >= 0; k--) {
+      if (rows[k][0] <= target) { s.ref24 = parseFloat(rows[k][4]); break; }
     }
-    if (idx === active) render();
+    renderIf('ticker', idx);
   }, function () {});
 }
 
+/* ============ DATA: POČASÍ (Open-Meteo) ============ */
+function loadWeather() {
+  var w = CONFIG.weather;
+  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + w.lat + '&longitude=' + w.lon +
+    '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+    '&timezone=auto&forecast_days=4';
+  getJSON(url, function (j) {
+    if (j.error) { wx.error = 'Počasí: ' + (j.reason || 'chyba'); renderIf('weather'); return; }
+    wx.data = j; wx.updated = new Date().getTime(); wx.error = null;
+    renderIf('weather');
+  }, function (err) { wx.error = 'Počasí: ' + err; renderIf('weather'); });
+}
+
+/* ============ IKONY POČASÍ ============ */
+var CLOUD = 'M17 50h31a10 10 0 0 0 1-20a15 15 0 0 0-28.5-4A12 12 0 0 0 17 50z';
+function svgSun(cx, cy, r) {
+  var s = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="#ffcc00"/>';
+  for (var a = 0; a < 8; a++) {
+    var ang = a * Math.PI / 4, r1 = r + 4, r2 = r + 9;
+    s += '<line x1="' + (cx + Math.cos(ang) * r1).toFixed(1) + '" y1="' + (cy + Math.sin(ang) * r1).toFixed(1) +
+         '" x2="' + (cx + Math.cos(ang) * r2).toFixed(1) + '" y2="' + (cy + Math.sin(ang) * r2).toFixed(1) +
+         '" stroke="#ffcc00" stroke-width="3.5" stroke-linecap="round"/>';
+  }
+  return s;
+}
+function svgMoon(cx, cy, r) {
+  return '<path d="M' + (cx + r * 0.3) + ' ' + (cy - r) + 'a' + r + ' ' + r + ' 0 1 0 ' + (r * 0.75) + ' ' + (r * 1.55) +
+         'a' + (r * 0.85) + ' ' + (r * 0.85) + ' 0 0 1-' + (r * 0.75) + '-' + (r * 1.55) + 'z" fill="#e5e5ea"/>';
+}
+function svgCloud(dy, color) {
+  return '<path d="' + CLOUD + '" fill="' + color + '" transform="translate(0,' + dy + ')"/>';
+}
+function weatherIcon(code, day) {
+  var s = '';
+  var body = day ? svgSun : svgMoon;
+  if (code === 0) {
+    s = day ? svgSun(32, 32, 13) : svgMoon(30, 32, 16);
+  } else if (code === 1 || code === 2) {
+    s = (day ? svgSun(22, 22, 9) : svgMoon(22, 22, 11)) + svgCloud(6, '#d1d1d6');
+  } else if (code === 3) {
+    s = '<g transform="translate(9,-9) scale(0.75)">' + svgCloud(0, '#8e8e93') + '</g>' + svgCloud(4, '#c7c7cc');
+  } else if (code === 45 || code === 48) {
+    s = svgCloud(-6, '#aeaeb2');
+    for (var f = 0; f < 3; f++) s += '<line x1="' + (12 + f * 4) + '" y1="' + (52 + f * 5) + '" x2="' + (52 - f * 4) +
+      '" y2="' + (52 + f * 5) + '" stroke="#8e8e93" stroke-width="3" stroke-linecap="round"/>';
+  } else if ((code >= 71 && code <= 77) || code === 85 || code === 86) {
+    s = svgCloud(-8, '#d1d1d6');
+    var fx = [20, 32, 44, 26, 38];
+    for (var n = 0; n < fx.length; n++) s += '<circle cx="' + fx[n] + '" cy="' + (n < 3 ? 50 : 58) + '" r="2.8" fill="#fff"/>';
+  } else if (code >= 95) {
+    s = svgCloud(-8, '#8e8e93') + '<polygon points="34,38 24,52 31,52 27,62 40,46 33,46 37,38" fill="#ffcc00"/>';
+  } else if (code >= 51) {
+    var heavy = (code >= 63 && code <= 67) || code >= 81;
+    s = (code >= 80 && day ? svgSun(22, 20, 8) : '') + svgCloud(-8, '#aeaeb2');
+    var dx = heavy ? [18, 26, 34, 42] : [22, 32, 42];
+    for (var r = 0; r < dx.length; r++) s += '<line x1="' + dx[r] + '" y1="47" x2="' + (dx[r] - 4) + '" y2="58" stroke="#64d2ff" stroke-width="3" stroke-linecap="round"/>';
+  } else {
+    s = svgCloud(0, '#c7c7cc');
+  }
+  return '<svg viewBox="0 0 64 64">' + s + '</svg>';
+}
+function weatherText(code) {
+  if (code === 0) return 'Jasno';
+  if (code === 1) return 'Skoro jasno';
+  if (code === 2) return 'Polojasno';
+  if (code === 3) return 'Zataženo';
+  if (code === 45 || code === 48) return 'Mlha';
+  if (code >= 51 && code <= 57) return 'Mrholení';
+  if (code >= 61 && code <= 67) return 'Déšť';
+  if (code >= 71 && code <= 77) return 'Sněžení';
+  if (code >= 80 && code <= 82) return 'Přeháňky';
+  if (code === 85 || code === 86) return 'Sněhové přeháňky';
+  if (code >= 95) return 'Bouřka';
+  return '';
+}
+var DAYS = ['Neděle', 'Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota'];
+function dayName(iso, k) {
+  if (k === 1) return 'Zítra';
+  var p = iso.split('-');
+  return DAYS[new Date(+p[0], +p[1] - 1, +p[2]).getDay()];
+}
+function deg(v) { return Math.round(v) + '°'; }
+
 /* ============ VYKRESLENÍ ============ */
+function renderIf(type, idx) {
+  var s = screens[scr];
+  if (s.type === type && (type !== 'ticker' || s.idx === idx)) render();
+}
+
 function render() {
-  var t = CONFIG.tickers[active], s = state[active];
-  $('pair').innerHTML = t.label;
+  var s = screens[scr];
+  var isT = s.type === 'ticker';
+  $('tickerScreen').className = 'col grow' + (isT ? '' : ' hidden');
+  $('weatherScreen').className = 'col grow' + (isT ? ' hidden' : '');
+  if (isT) renderTicker(s.idx); else renderWeather();
+}
+
+function renderTicker(idx) {
+  var t = CONFIG.tickers[idx], s = state[idx];
+  $('label').innerHTML = t.label;
   var isBtc = t.symbol === 'btc';
   $('btcMark').style.display = isBtc ? '' : 'none';
   $('logoText').textContent = isBtc ? '' : t.symbol;
   $('logo').getElementsByTagName('circle')[0].setAttribute('fill', t.color);
   $('chartLabel').innerHTML = CONFIG.chartLabel;
-
   $('price').innerHTML = s.price === null ? '—' : fmt(s.price, t.decimals);
 
   var ch = $('change');
@@ -211,21 +351,40 @@ function render() {
     ch.innerHTML = (pct >= 0 ? '+' : '\u2212') + fmt(Math.abs(pct), 2) + '\u00A0% za 24 h';
   } else { ch.innerHTML = ''; }
 
-  var dot = $('dot'), age = (new Date().getTime() - s.updated) / 1000;
-  if (s.error && age > CONFIG.priceRefreshSeconds * 3) dot.style.background = '#ff453a';
-  else if (!s.updated || age > CONFIG.priceRefreshSeconds * 3) dot.style.background = '#ff9f0a';
-  else dot.style.background = '#34c759';
-
-  if (s.updated) {
-    var d = new Date(s.updated);
-    $('time').innerHTML = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-  }
+  setDot(s.updated, CONFIG.priceRefreshSeconds * 3, s.error);
+  $('time').innerHTML = s.updated ? clock(s.updated, true) : '--:--:--';
   $('msg').innerHTML = s.error ? s.error : (s.price === null ? 'Načítám data z Krakenu…' : '');
-
-  drawChart(s.candles, s.price);
+  drawChart(s.candles, s.price, t.color);
 }
 
-function drawChart(c, price) {
+function renderWeather() {
+  $('label').innerHTML = CONFIG.weather.place;
+  $('time').innerHTML = clock(new Date().getTime(), false);
+  setDot(wx.updated, CONFIG.weather.refreshMinutes * 60 * 3, wx.error);
+  $('msg').innerHTML = wx.error ? wx.error : (wx.data ? '' : 'Načítám počasí…');
+  if (!wx.data) return;
+
+  var c = wx.data.current, d = wx.data.daily;
+  $('wNowIcon').innerHTML = weatherIcon(c.weather_code, c.is_day === 1);
+  $('wTemp').innerHTML = deg(c.temperature_2m);
+  $('wDesc').innerHTML = weatherText(c.weather_code);
+  $('wRange').innerHTML = 'Dnes ' + deg(d.temperature_2m_max[0]) + ' <span class="min">/ ' + deg(d.temperature_2m_min[0]) + '</span>';
+  var rain = d.precipitation_probability_max[0];
+  $('wExtra').innerHTML = (rain !== null ? 'Srážky ' + rain + '\u00A0%<br>' : '') +
+    'Vítr ' + Math.round(c.wind_speed_10m) + '\u00A0km/h<br>Vlhkost ' + c.relative_humidity_2m + '\u00A0%';
+
+  var html = '';
+  for (var k = 1; k <= 3 && k < d.time.length; k++) {
+    var p = d.precipitation_probability_max[k];
+    html += '<div class="day"><div class="dName">' + dayName(d.time[k], k) + '</div>' +
+      '<div class="dIcon">' + weatherIcon(d.weather_code[k], true) + '</div>' +
+      '<div class="dTemp">' + deg(d.temperature_2m_max[k]) + ' <span class="min">/ ' + deg(d.temperature_2m_min[k]) + '</span></div>' +
+      '<div class="dRain">' + (p !== null ? 'Srážky ' + p + '\u00A0%' : '&nbsp;') + '</div></div>';
+  }
+  $('wDays').innerHTML = html;
+}
+
+function drawChart(c, price, color) {
   var wrap = $('chartWrap'), cv = $('chart');
   var w = wrap.offsetWidth, h = wrap.offsetHeight;
   var dpr = window.devicePixelRatio || 1;
@@ -238,59 +397,70 @@ function drawChart(c, price) {
 
   var axisW = 74, top = 24, bottom = 8;
   var plotW = w - axisW, plotH = h - top - bottom;
-  var hi = -Infinity, lo = Infinity, i;
-  for (i = 0; i < c.length; i++) { if (c[i].h > hi) hi = c[i].h; if (c[i].l < lo) lo = c[i].l; }
+  var hi = -Infinity, lo = Infinity, k;
+  for (k = 0; k < c.length; k++) { if (c[k].h > hi) hi = c[k].h; if (c[k].l < lo) lo = c[k].l; }
   var padV = (hi - lo) * 0.05; hi += padV; lo -= padV;
   function y(v) { return top + (hi - v) / (hi - lo) * plotH; }
 
-  // mřížka a osa
   g.font = '13px Helvetica Neue, Helvetica, Arial, sans-serif';
   g.textBaseline = 'middle';
-  var steps = 4;
-  for (i = 0; i <= steps; i++) {
-    var v = lo + (hi - lo) * i / steps, yy = Math.round(y(v)) + 0.5;
+  for (k = 0; k <= 4; k++) {
+    var v = lo + (hi - lo) * k / 4, yy = Math.round(y(v)) + 0.5;
     g.strokeStyle = '#1c1c1e'; g.lineWidth = 1;
     g.beginPath(); g.moveTo(0, yy); g.lineTo(plotW, yy); g.stroke();
     g.fillStyle = '#6e6e73';
     g.fillText(fmt(v / 1000, 1) + 'k', plotW + 10, yy);
   }
 
-  // svíčky
   var slot = plotW / c.length, body = Math.max(2, slot * 0.62);
-  for (i = 0; i < c.length; i++) {
-    var k = c[i], x = slot * i + slot / 2;
-    var col = k.c >= k.o ? '#34c759' : '#ff453a';
+  for (k = 0; k < c.length; k++) {
+    var q = c[k], x = slot * k + slot / 2;
+    var col = q.c >= q.o ? '#34c759' : '#ff453a';
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1;
-    g.beginPath(); g.moveTo(Math.round(x) + 0.5, y(k.h)); g.lineTo(Math.round(x) + 0.5, y(k.l)); g.stroke();
-    var y1 = y(Math.max(k.o, k.c)), y2 = y(Math.min(k.o, k.c));
+    g.beginPath(); g.moveTo(Math.round(x) + 0.5, y(q.h)); g.lineTo(Math.round(x) + 0.5, y(q.l)); g.stroke();
+    var y1 = y(Math.max(q.o, q.c)), y2 = y(Math.min(q.o, q.c));
     g.fillRect(x - body / 2, y1, body, Math.max(1, y2 - y1));
   }
 
-  // čára aktuální ceny
   if (price !== null && price <= hi && price >= lo) {
     var py = Math.round(y(price)) + 0.5;
-    g.strokeStyle = CONFIG.tickers[active].color; g.lineWidth = 1;
+    g.strokeStyle = color; g.lineWidth = 1;
     for (var dx = 0; dx < plotW; dx += 8) { g.beginPath(); g.moveTo(dx, py); g.lineTo(dx + 4, py); g.stroke(); }
-    g.fillStyle = CONFIG.tickers[active].color;
+    g.fillStyle = color;
     g.fillRect(plotW + 4, py - 10, axisW - 4, 20);
     g.fillStyle = '#000';
     g.fillText(fmt(price / 1000, 1) + 'k', plotW + 10, py);
   }
 }
 
+/* ============ NOČNÍ ZTMAVENÍ ============ */
+function checkDim() {
+  var hr = new Date().getHours(), f = CONFIG.dim.from, t = CONFIG.dim.to;
+  var night = f > t ? (hr >= f || hr < t) : (hr >= f && hr < t);
+  var el = $('dim');
+  el.style.opacity = CONFIG.dim.opacity;
+  el.className = night ? '' : 'hidden';
+}
+
 /* ============ SPUŠTĚNÍ ============ */
-function refreshPrices() { for (var i = 0; i < CONFIG.tickers.length; i++) loadPrice(i); }
-function refreshCharts() { for (var i = 0; i < CONFIG.tickers.length; i++) loadChart(i); }
+function refreshPrices() { for (var k = 0; k < CONFIG.tickers.length; k++) loadPrice(k); }
+function refreshCharts() { for (var k = 0; k < CONFIG.tickers.length; k++) loadChart(k); }
 
 refreshCharts();
 refreshPrices();
 setInterval(refreshPrices, CONFIG.priceRefreshSeconds * 1000);
 setInterval(refreshCharts, CONFIG.chartRefreshSeconds * 1000);
-setInterval(render, 5000); // hlídá stáří dat (barva tečky)
+if (CONFIG.weather.enabled) {
+  loadWeather();
+  setInterval(loadWeather, CONFIG.weather.refreshMinutes * 60 * 1000);
+}
+setInterval(render, 5000);
+checkDim();
+setInterval(checkDim, 60000);
+render();
 
-if (CONFIG.tickers.length > 1) {
-  setInterval(function () { active = (active + 1) % CONFIG.tickers.length; render(); },
-              CONFIG.rotateSeconds * 1000);
+if (screens.length > 1) {
+  setInterval(function () { scr = (scr + 1) % screens.length; render(); }, CONFIG.screenSeconds * 1000);
 }
 
 window.addEventListener('resize', render);
