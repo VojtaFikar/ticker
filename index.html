@@ -130,7 +130,7 @@ var CONFIG = {
   candleCount: 52,
   chartLabel: 'Týdenní svíčky, 1 rok',
 
-  weather: { enabled: true, place: 'Schwetzingen', lat: 49.38, lon: 8.57, refreshMinutes: 15 },
+  weather: { enabled: true, place: 'Schwetzingen', refreshMinutes: 10 },
 
   dim: { from: 22, to: 7, opacity: 0.85 }  // noční ztmavení (hodiny, 0–23)
 };
@@ -236,14 +236,12 @@ function loadChart(idx) {
   }, function () {});
 }
 
-/* ============ DATA: POČASÍ (Open-Meteo) ============ */
+/* ============ DATA: POČASÍ ============ */
+/* iOS 9 nedůvěřuje certifikátu Open-Meteo, proto předpověď stahuje GitHub
+   každých 30 minut sám a ukládá ji vedle stránky jako weather.json
+   (viz .github/workflows/pages.yml – tam se mění i souřadnice). */
 function loadWeather() {
-  var w = CONFIG.weather;
-  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + w.lat + '&longitude=' + w.lon +
-    '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day' +
-    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
-    '&timezone=auto&forecast_days=4';
-  getJSON(url, function (j) {
+  getJSON('weather.json?t=' + new Date().getTime(), function (j) {
     if (j.error) { wx.error = 'Počasí: ' + (j.reason || 'chyba'); renderIf('weather'); return; }
     wx.data = j; wx.updated = new Date().getTime(); wx.error = null;
     renderIf('weather');
