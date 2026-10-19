@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="BTC">
+<title>BTC Ticker</title>
+<!--
+  BTC ticker – verze pro staré iPady (iOS 9, Safari 9).
+  Pouze ES5 JavaScript, XMLHttpRequest, žádný WebSocket, žádné moderní CSS.
+  Data: Kraken REST API (čisté USD páry).
+-->
+<style>
+html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #f2f2f2;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; overflow: hidden;
+  -webkit-user-select: none; -webkit-text-size-adjust: 100%; }
+#app { position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  padding: 14px 22px 10px; box-sizing: border-box;
+  display: -webkit-box; display: -webkit-flex; display: flex;
+  -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column; }
+
+#top { display: -webkit-box; display: -webkit-flex; display: flex;
+  -webkit-box-pack: justify; -webkit-justify-content: space-between; justify-content: space-between;
+  -webkit-box-align: center; -webkit-align-items: center; align-items: center;
+  font-size: 17px; color: #8a8a8f; height: 28px; }
+#pair { color: #c7c7cc; font-weight: 500; letter-spacing: 0.02em; }
+#status { display: -webkit-box; display: -webkit-flex; display: flex;
+  -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+#dot { width: 10px; height: 10px; border-radius: 5px; background: #555; margin-right: 8px; }
+
+#priceRow { display: -webkit-box; display: -webkit-flex; display: flex;
+  -webkit-box-align: center; -webkit-align-items: center; align-items: center;
+  margin: 1vh 0 1.5vh; }
+#logo { width: 11vw; height: 11vw; max-width: 120px; max-height: 120px; margin-right: 2.5vw;
+  -webkit-flex-shrink: 0; flex-shrink: 0; }
+#price { font-size: 13vw; font-weight: 300; line-height: 1; letter-spacing: -0.02em;
+  white-space: nowrap; }
+#change { font-size: 3.6vw; margin-left: 2.5vw; white-space: nowrap; font-weight: 400; }
+.up { color: #34c759; }
+.down { color: #ff453a; }
+
+#chartWrap { position: relative; -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-height: 100px; }
+#chart { position: absolute; top: 0; left: 0; }
+#chartLabel { position: absolute; top: 2px; left: 0; font-size: 14px; color: #6e6e73; }
+
+#msg { font-size: 14px; color: #ff9f0a; min-height: 18px; padding-top: 4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div id="pair">BTC / USD</div>
+    <div id="status"><div id="dot"></div><span id="time">--:--:--</span></div>
+  </div>
+
+  <div id="priceRow">
+    <svg id="logo" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="32" fill="#f7931a"/>
+      <text id="logoText" x="32" y="45" text-anchor="middle" font-size="38" font-weight="700"
+        fill="#fff" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">&#8383;</text>
+    </svg>
+    <div id="price">—</div>
+    <div id="change"></div>
+  </div>
+
+  <div id="chartWrap">
+    <canvas id="chart"></canvas>
+    <div id="chartLabel"></div>
+  </div>
+
+  <div id="msg">Načítám data z Krakenu…</div>
+</div>
+
+<script>
+/* ============ NASTAVENÍ ============ */
+var CONFIG = {
+  tickers: [
+    { label: 'BTC / USD', restPair: 'XBTUSD', symbol: '\u20BF', color: '#f7931a', decimals: 0 }
+    // Další tickery pro rotaci, stačí odkomentovat:
+    // ,{ label: 'ETH / USD', restPair: 'ETHUSD', symbol: '\u039E', color: '#627eea', decimals: 0 }
+    // ,{ label: 'SOL / USD', restPair: 'SOLUSD', symbol: 'S', color: '#14f195', decimals: 2 }
+  ],
+  rotateSeconds: 30,        // jak dlouho je každý ticker na obrazovce
+  priceRefreshSeconds: 10,  // jak často se stahuje cena
+  chartRefreshSeconds: 300, // jak často se stahuje graf a 24h změna
+  candleInterval: 10080,    // minuty: 10080 = týdenní svíčky, 1440 = denní
+  candleCount: 52,          // počet svíček v grafu
+  chartLabel: 'Týdenní svíčky, 1 rok'
+};
+
+/* ============ STAV ============ */
+var API = 'https://api.kraken.com/0/public/';
+var state = [];
+var active = 0;
+for (var i = 0; i < CONFIG.tickers.length; i++) {
+  state.push({ price: null, ref24: null, candles: [], updated: 0, error: null });
+}
+
+/* ============ POMOCNÉ FUNKCE ============ */
+function $(id) { return document.getElementById(id); }
+
+function getJSON(url, ok, fail) {
+  var x = new XMLHttpRequest();
+  var done = false;
+  x.open('GET', url, true);
+  x.onreadystatechange = function () {
+    if (x.readyState !== 4 || done) return;
+    done = true;
+    if (x.status === 200) {
+      var j;
+      try { j = JSON.parse(x.responseText); } catch (e) { fail('Neplatná odpověď serveru'); return; }
+      if (j.error && j.error.length) { fail('Kraken: ' + j.error.join(', ')); return; }
+      ok(j.result);
+    } else if (x.status === 0) {
+      fail('Spojení selhalo (síť nebo blokování požadavku)');
+    } else {
+      fail('Chyba serveru HTTP ' + x.status);
+    }
+  };
+  setTimeout(function () { if (!done) { done = true; x.abort(); fail('Server neodpověděl do 15 s'); } }, 15000);
+  x.send();
+}
+
+function resultData(r) {
+  var keys = Object.keys(r);
+  for (var i = 0; i < keys.length; i++) { if (keys[i] !== 'last') return r[keys[i]]; }
+  return null;
+}
+
+function fmt(n, d) {
+  var parts = n.toFixed(d).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '\u2009');
+  return parts.join(',');
+}
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+/* ============ DATA ============ */
+function loadPrice(idx) {
+  var t = CONFIG.tickers[idx], s = state[idx];
+  getJSON(API + 'Ticker?pair=' + t.restPair, function (r) {
+    var d = resultData(r);
+    s.price = parseFloat(d.c[0]);
+    s.updated = new Date().getTime();
+    s.error = null;
+    // poslední svíčka sleduje živou cenu
+    var c = s.candles;
+    if (c.length) {
+      var last = c[c.length - 1];
+      last.c = s.price;
+      if (s.price > last.h) last.h = s.price;
+      if (s.price < last.l) last.l = s.price;
+    }
+    if (idx === active) render();
+  }, function (err) { s.error = err; if (idx === active) render(); });
+}
+
+function loadChart(idx) {
+  var t = CONFIG.tickers[idx], s = state[idx];
+  getJSON(API + 'OHLC?pair=' + t.restPair + '&interval=' + CONFIG.candleInterval, function (r) {
+    var rows = resultData(r), out = [];
+    var start = Math.max(0, rows.length - CONFIG.candleCount);
+    for (var i = start; i < rows.length; i++) {
+      out.push({ t: rows[i][0], o: parseFloat(rows[i][1]), h: parseFloat(rows[i][2]),
+                 l: parseFloat(rows[i][3]), c: parseFloat(rows[i][4]) });
+    }
+    s.candles = out;
+    if (idx === active) render();
+  }, function (err) { s.error = err; if (idx === active) render(); });
+
+  // 24h změna: cena před 24 hodinami z hodinových svíček
+  getJSON(API + 'OHLC?pair=' + t.restPair + '&interval=60', function (r) {
+    var rows = resultData(r);
+    var target = Math.floor(new Date().getTime() / 1000) - 86400;
+    for (var i = rows.length - 1; i >= 0; i--) {
+      if (rows[i][0] <= target) { s.ref24 = parseFloat(rows[i][4]); break; }
+    }
+    if (idx === active) render();
+  }, function () {});
+}
+
+/* ============ VYKRESLENÍ ============ */
+function render() {
+  var t = CONFIG.tickers[active], s = state[active];
+  $('pair').innerHTML = t.label;
+  $('logoText').textContent = t.symbol;
+  $('logo').getElementsByTagName('circle')[0].setAttribute('fill', t.color);
+  $('chartLabel').innerHTML = CONFIG.chartLabel;
+
+  $('price').innerHTML = s.price === null ? '—' : '$' + fmt(s.price, t.decimals);
+
+  var ch = $('change');
+  if (s.price !== null && s.ref24) {
+    var pct = (s.price - s.ref24) / s.ref24 * 100;
+    ch.className = pct >= 0 ? 'up' : 'down';
+    ch.innerHTML = (pct >= 0 ? '+' : '\u2212') + fmt(Math.abs(pct), 2) + '\u00A0% za 24 h';
+  } else { ch.innerHTML = ''; }
+
+  var dot = $('dot'), age = (new Date().getTime() - s.updated) / 1000;
+  if (s.error && age > CONFIG.priceRefreshSeconds * 3) dot.style.background = '#ff453a';
+  else if (!s.updated || age > CONFIG.priceRefreshSeconds * 3) dot.style.background = '#ff9f0a';
+  else dot.style.background = '#34c759';
+
+  if (s.updated) {
+    var d = new Date(s.updated);
+    $('time').innerHTML = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  $('msg').innerHTML = s.error ? s.error : (s.price === null ? 'Načítám data z Krakenu…' : '');
+
+  drawChart(s.candles, s.price);
+}
+
+function drawChart(c, price) {
+  var wrap = $('chartWrap'), cv = $('chart');
+  var w = wrap.offsetWidth, h = wrap.offsetHeight;
+  var dpr = window.devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  var g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  if (!c.length) return;
+
+  var axisW = 74, top = 24, bottom = 8;
+  var plotW = w - axisW, plotH = h - top - bottom;
+  var hi = -Infinity, lo = Infinity, i;
+  for (i = 0; i < c.length; i++) { if (c[i].h > hi) hi = c[i].h; if (c[i].l < lo) lo = c[i].l; }
+  var padV = (hi - lo) * 0.05; hi += padV; lo -= padV;
+  function y(v) { return top + (hi - v) / (hi - lo) * plotH; }
+
+  // mřížka a osa
+  g.font = '13px Helvetica Neue, Helvetica, Arial, sans-serif';
+  g.textBaseline = 'middle';
+  var steps = 4;
+  for (i = 0; i <= steps; i++) {
+    var v = lo + (hi - lo) * i / steps, yy = Math.round(y(v)) + 0.5;
+    g.strokeStyle = '#1c1c1e'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, yy); g.lineTo(plotW, yy); g.stroke();
+    g.fillStyle = '#6e6e73';
+    g.fillText(fmt(v / 1000, 1) + 'k', plotW + 10, yy);
+  }
+
+  // svíčky
+  var slot = plotW / c.length, body = Math.max(2, slot * 0.62);
+  for (i = 0; i < c.length; i++) {
+    var k = c[i], x = slot * i + slot / 2;
+    var col = k.c >= k.o ? '#34c759' : '#ff453a';
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(Math.round(x) + 0.5, y(k.h)); g.lineTo(Math.round(x) + 0.5, y(k.l)); g.stroke();
+    var y1 = y(Math.max(k.o, k.c)), y2 = y(Math.min(k.o, k.c));
+    g.fillRect(x - body / 2, y1, body, Math.max(1, y2 - y1));
+  }
+
+  // čára aktuální ceny
+  if (price !== null && price <= hi && price >= lo) {
+    var py = Math.round(y(price)) + 0.5;
+    g.strokeStyle = CONFIG.tickers[active].color; g.lineWidth = 1;
+    for (var dx = 0; dx < plotW; dx += 8) { g.beginPath(); g.moveTo(dx, py); g.lineTo(dx + 4, py); g.stroke(); }
+    g.fillStyle = CONFIG.tickers[active].color;
+    g.fillRect(plotW + 4, py - 10, axisW - 4, 20);
+    g.fillStyle = '#000';
+    g.fillText(fmt(price / 1000, 1) + 'k', plotW + 10, py);
+  }
+}
+
+/* ============ SPUŠTĚNÍ ============ */
+function refreshPrices() { for (var i = 0; i < CONFIG.tickers.length; i++) loadPrice(i); }
+function refreshCharts() { for (var i = 0; i < CONFIG.tickers.length; i++) loadChart(i); }
+
+refreshCharts();
+refreshPrices();
+setInterval(refreshPrices, CONFIG.priceRefreshSeconds * 1000);
+setInterval(refreshCharts, CONFIG.chartRefreshSeconds * 1000);
+setInterval(render, 5000); // hlídá stáří dat (barva tečky)
+
+if (CONFIG.tickers.length > 1) {
+  setInterval(function () { active = (active + 1) % CONFIG.tickers.length; render(); },
+              CONFIG.rotateSeconds * 1000);
+}
+
+window.addEventListener('resize', render);
+window.addEventListener('orientationchange', function () { setTimeout(render, 300); });
+</script>
+</body>
+</html>
