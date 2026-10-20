@@ -62,6 +62,25 @@ html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #f2f2
 .dTemp { font-size: 3.4vw; font-weight: 300; }
 .dRain { font-size: 2vw; color: #64d2ff; margin-top: 0.5vw; }
 
+/* --- síť BTC --- */
+.mRow { -webkit-box-align: stretch; -webkit-align-items: stretch; align-items: stretch; }
+.mRow + .mRow { border-top: 1px solid #2c2c2e; }
+.tile { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; padding: 2.5vh 2vw; box-sizing: border-box;
+  display: -webkit-box; display: -webkit-flex; display: flex;
+  -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column;
+  -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center; }
+.tile + .tile { border-left: 1px solid #2c2c2e; }
+.tTitle { font-size: 1.8vw; color: #8a8a8f; text-transform: uppercase; letter-spacing: 0.08em; }
+.tVal { font-size: 6.4vw; font-weight: 300; line-height: 1.15; white-space: nowrap; }
+.unit { font-size: 2.3vw; color: #8a8a8f; margin-left: 0.6vw; }
+.tSub { font-size: 1.9vw; color: #8a8a8f; margin-top: 0.4vw; }
+.bar { position: relative; height: 8px; border-radius: 4px; background: #2c2c2e; margin-top: 1.4vw; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #f7931a; }
+.fngBar { background: -webkit-linear-gradient(left, #ff453a, #ff9f0a, #ffd60a, #a6e05a, #34c759);
+  background: linear-gradient(to right, #ff453a, #ff9f0a, #ffd60a, #a6e05a, #34c759); }
+#fngMark { position: absolute; top: -5px; width: 4px; height: 18px; margin-left: -2px;
+  background: #fff; border-radius: 2px; }
+
 #msg { font-size: 14px; color: #ff9f0a; min-height: 18px; padding-top: 4px; }
 #dim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000;
   pointer-events: none; z-index: 10; }
@@ -111,6 +130,29 @@ html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #f2f2
     <div id="wDays" class="row"></div>
   </div>
 
+  <!-- obrazovka: síť BTC -->
+  <div id="metricsScreen" class="col grow hidden">
+    <div class="row mRow grow">
+      <div class="tile"><div class="tTitle">Fear &amp; Greed</div>
+        <div class="tVal" id="fngVal">—</div><div class="tSub" id="fngSub"></div>
+        <div class="bar fngBar"><div id="fngMark"></div></div></div>
+      <div class="tile"><div class="tTitle">Výška bloku</div>
+        <div class="tVal" id="hVal">—</div><div class="tSub" id="hSub"></div></div>
+      <div class="tile"><div class="tTitle">Poplatky</div>
+        <div class="tVal" id="feeVal">—</div><div class="tSub" id="feeSub"></div></div>
+    </div>
+    <div class="row mRow grow">
+      <div class="tile"><div class="tTitle">Do halvingu</div>
+        <div class="tVal" id="halVal">—</div><div class="tSub" id="halSub"></div>
+        <div class="bar"><div class="fill" id="halBar"></div></div></div>
+      <div class="tile"><div class="tTitle">Úprava obtížnosti</div>
+        <div class="tVal" id="difVal">—</div><div class="tSub" id="difSub"></div>
+        <div class="bar"><div class="fill" id="difBar"></div></div></div>
+      <div class="tile"><div class="tTitle">Hashrate</div>
+        <div class="tVal" id="hrVal">—</div><div class="tSub">průměr za 3 dny</div></div>
+    </div>
+  </div>
+
   <div id="msg"></div>
 </div>
 <div id="dim" class="hidden"></div>
@@ -132,7 +174,10 @@ var CONFIG = {
 
   weather: { enabled: true, place: 'Schwetzingen', refreshMinutes: 10 },
 
-  dim: { from: 22, to: 7, opacity: 0.85 }  // noční ztmavení (hodiny, 0–23)
+  metrics: { enabled: true, refreshMinutes: 5 },   // obrazovka „Bitcoin síť“ (data z metrics.json)
+
+  dim: { from: 22, to: 7, opacity: 0.85 },  // noční ztmavení (hodiny, 0–23)
+  reloadHour: 4                             // každou noc v tuto hodinu se stránka znovu načte
 };
 
 /* ============ STAV ============ */
@@ -142,10 +187,13 @@ for (i = 0; i < CONFIG.tickers.length; i++) {
   state.push({ price: null, ref24: null, candles: [], updated: 0, error: null });
 }
 var wx = { data: null, updated: 0, error: null };
+var mx = { data: null, error: null };
+var START = new Date().getTime();
 
 var screens = [];
 for (i = 0; i < CONFIG.tickers.length; i++) screens.push({ type: 'ticker', idx: i });
 if (CONFIG.weather.enabled) screens.push({ type: 'weather' });
+if (CONFIG.metrics.enabled) screens.push({ type: 'metrics' });
 var scr = 0;
 
 /* ============ POMOCNÉ FUNKCE ============ */
@@ -248,6 +296,13 @@ function loadWeather() {
   }, function (err) { wx.error = 'Počasí: ' + err; renderIf('weather'); });
 }
 
+/* ============ DATA: SÍŤ BTC (metrics.json z GitHub Actions) ============ */
+function loadMetrics() {
+  getJSON('metrics.json?t=' + new Date().getTime(), function (j) {
+    mx.data = j; mx.error = null; renderIf('metrics');
+  }, function (err) { mx.error = 'Síť BTC: ' + err; renderIf('metrics'); });
+}
+
 /* ============ IKONY POČASÍ ============ */
 var CLOUD = 'M17 50h31a10 10 0 0 0 1-20a15 15 0 0 0-28.5-4A12 12 0 0 0 17 50z';
 function svgSun(cx, cy, r) {
@@ -326,10 +381,12 @@ function renderIf(type, idx) {
 
 function render() {
   var s = screens[scr];
-  var isT = s.type === 'ticker';
-  $('tickerScreen').className = 'col grow' + (isT ? '' : ' hidden');
-  $('weatherScreen').className = 'col grow' + (isT ? ' hidden' : '');
-  if (isT) renderTicker(s.idx); else renderWeather();
+  $('tickerScreen').className = 'col grow' + (s.type === 'ticker' ? '' : ' hidden');
+  $('weatherScreen').className = 'col grow' + (s.type === 'weather' ? '' : ' hidden');
+  $('metricsScreen').className = 'col grow' + (s.type === 'metrics' ? '' : ' hidden');
+  if (s.type === 'ticker') renderTicker(s.idx);
+  else if (s.type === 'weather') renderWeather();
+  else renderMetrics();
 }
 
 function renderTicker(idx) {
@@ -380,6 +437,62 @@ function renderWeather() {
       '<div class="dRain">' + (p !== null ? 'Srážky ' + p + '\u00A0%' : '&nbsp;') + '</div></div>';
   }
   $('wDays').innerHTML = html;
+}
+
+var MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec',
+              'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
+var FNG = { 'Extreme Fear': 'Extrémní strach', 'Fear': 'Strach', 'Neutral': 'Neutrální',
+            'Greed': 'Chamtivost', 'Extreme Greed': 'Extrémní chamtivost' };
+function fngColor(v) {
+  return v < 25 ? '#ff453a' : v < 45 ? '#ff9f0a' : v < 55 ? '#ffd60a' : v < 75 ? '#a6e05a' : '#34c759';
+}
+function unit(t) { return '<span class="unit">' + t + '</span>'; }
+
+function renderMetrics() {
+  var m = mx.data;
+  $('label').innerHTML = 'Bitcoin síť';
+  $('time').innerHTML = m && m.updated ? clock(m.updated * 1000, false) : '--:--';
+  setDot(m && m.updated ? m.updated * 1000 : 0, 3600, mx.error);
+  $('msg').innerHTML = mx.error ? mx.error : (m ? '' : 'Načítám data sítě…');
+  if (!m) return;
+
+  if (m.fng) {
+    var v = m.fng.value;
+    $('fngVal').innerHTML = '<span style="color:' + fngColor(v) + '">' + v + '</span>';
+    $('fngSub').innerHTML = (FNG[m.fng.label] || m.fng.label) +
+      (m.fng.prev !== null && m.fng.prev !== undefined ? ', včera ' + m.fng.prev : '');
+    $('fngMark').style.left = v + '%';
+  }
+
+  if (m.height) {
+    var h = m.height;
+    $('hVal').innerHTML = fmt(h, 0);
+    $('hSub').innerHTML = 'Epocha ' + (Math.floor(h / 210000) + 1);
+    var next = (Math.floor(h / 210000) + 1) * 210000, left = next - h;
+    var eta = new Date(new Date().getTime() + left * 600000);
+    $('halVal').innerHTML = fmt(left, 0) + unit('bloků');
+    $('halSub').innerHTML = 'Odhad: ' + MONTHS[eta.getMonth()] + ' ' + eta.getFullYear();
+    $('halBar').style.width = ((h % 210000) / 210000 * 100).toFixed(1) + '%';
+  }
+
+  if (m.fees) {
+    $('feeVal').innerHTML = m.fees.fastestFee + unit('sat/vB');
+    $('feeSub').innerHTML = '30 min ' + m.fees.halfHourFee + ', 1 h ' + m.fees.hourFee +
+      ', min ' + (m.fees.minimumFee || m.fees.economyFee);
+  }
+
+  if (m.diff && m.diff.change !== null && m.diff.change !== undefined) {
+    var dc = m.diff.change;
+    $('difVal').innerHTML = '<span class="' + (dc >= 0 ? 'up' : 'down') + '">' +
+      (dc >= 0 ? '+' : '\u2212') + fmt(Math.abs(dc), 2) + '\u00A0%</span>';
+    var dd = new Date(m.diff.eta);
+    $('difSub').innerHTML = 'Za ' + fmt(m.diff.remaining, 0) + ' bloků, kolem ' + dd.getDate() + '. ' + (dd.getMonth() + 1) + '.';
+    $('difBar').style.width = Math.min(100, m.diff.progress).toFixed(1) + '%';
+  }
+
+  if (m.hashrate) {
+    $('hrVal').innerHTML = fmt(m.hashrate / 1e18, 0) + unit('EH/s');
+  }
 }
 
 function drawChart(c, price, color) {
@@ -455,6 +568,31 @@ if (CONFIG.weather.enabled) {
 setInterval(render, 5000);
 checkDim();
 setInterval(checkDim, 60000);
+if (CONFIG.metrics.enabled) {
+  loadMetrics();
+  setInterval(loadMetrics, CONFIG.metrics.refreshMinutes * 60 * 1000);
+}
+
+/* ============ AUTOMATICKÉ OBNOVENÍ ============ */
+/* Znovu načte stránku jen tehdy, když je server dostupný –
+   jinak by Safari zůstalo na chybové stránce. */
+function safeReload() {
+  var x = new XMLHttpRequest();
+  x.open('GET', 'index.html?t=' + new Date().getTime(), true);
+  x.onreadystatechange = function () {
+    if (x.readyState === 4 && x.status === 200) location.reload();
+  };
+  x.send();
+}
+function watchdog() {
+  var now = new Date();
+  if (now.getTime() - START < 15 * 60000) return;          // čerstvě načteno
+  if (now.getHours() === CONFIG.reloadHour && now.getMinutes() < 10) { safeReload(); return; }
+  var newest = 0;
+  for (var k = 0; k < state.length; k++) if (state[k].updated > newest) newest = state[k].updated;
+  if (now.getTime() - newest > 10 * 60000) safeReload();   // cena se 10 min neaktualizovala
+}
+setInterval(watchdog, 60000);
 render();
 
 if (screens.length > 1) {
