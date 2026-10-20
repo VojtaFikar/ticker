@@ -81,6 +81,15 @@ html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #f2f2
 #fngMark { position: absolute; top: -5px; width: 4px; height: 18px; margin-left: -2px;
   background: #fff; border-radius: 2px; }
 
+/* --- prolínání a upozornění --- */
+#app { -webkit-transition: opacity 0.6s ease; transition: opacity 0.6s ease; }
+@-webkit-keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.45; } 100% { opacity: 1; } }
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.45; } 100% { opacity: 1; } }
+.alertUp, .alertDown { -webkit-animation: pulse 1.6s ease-in-out infinite; animation: pulse 1.6s ease-in-out infinite; }
+.alertUp { color: #34c759; text-shadow: 0 0 30px rgba(52,199,89,0.55); }
+.alertDown { color: #ff453a; text-shadow: 0 0 30px rgba(255,69,58,0.55); }
+#alertLine { font-size: 2.6vw; margin-top: 0.6vw; font-weight: 500; }
+
 #msg { font-size: 14px; color: #ff9f0a; min-height: 18px; padding-top: 4px; }
 #dim { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000;
   pointer-events: none; z-index: 10; }
@@ -108,7 +117,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #f2f2
           fill="#fff" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"></text>
       </svg>
       <div id="price">—</div>
-      <div id="side"><div id="cur">$</div><div id="change"></div></div>
+      <div id="side"><div id="cur">$</div><div id="change"></div><div id="alertLine"></div></div>
     </div>
     <div id="chartWrap" class="grow">
       <canvas id="chart"></canvas>
@@ -177,14 +186,17 @@ var CONFIG = {
   metrics: { enabled: true, refreshMinutes: 5 },   // obrazovka „Bitcoin síť“ (data z metrics.json)
 
   dim: { from: 22, to: 7, opacity: 0.85 },  // noční ztmavení (hodiny, 0–23)
-  reloadHour: 4                             // každou noc v tuto hodinu se stránka znovu načte
+  reloadHour: 4,                            // každou noc v tuto hodinu se stránka znovu načte (null = vypnuto)
+
+  alert: { percent: 3 }        // upozornění při změně o tolik % za poslední hodinu
 };
 
 /* ============ STAV ============ */
 var KRAKEN = 'https://api.kraken.com/0/public/';
 var state = [], i;
 for (i = 0; i < CONFIG.tickers.length; i++) {
-  state.push({ price: null, ref24: null, candles: [], updated: 0, error: null });
+  state.push({ price: null, ref24: null, candles: [], updated: 0, error: null,
+              hist: [], ref1hOhlc: null, pct1h: null, alert: null });
 }
 var wx = { data: null, updated: 0, error: null };
 var mx = { data: null, error: null };
@@ -252,6 +264,8 @@ function loadPrice(idx) {
     s.price = parseFloat(d.c[0]);
     s.updated = new Date().getTime();
     s.error = null;
+    s.hist.push({ t: s.updated, p: s.price });
+    while (s.hist.length && s.hist[0].t < s.updated - 65 * 60000) s.hist.shift();
     var c = s.candles;
     if (c.length) {
       var last = c[c.length - 1];
@@ -259,6 +273,7 @@ function loadPrice(idx) {
       if (s.price > last.h) last.h = s.price;
       if (s.price < last.l) last.l = s.price;
     }
+    checkAlert(idx);
     renderIf('ticker', idx);
   }, function (err) { s.error = err; renderIf('ticker', idx); });
 }
@@ -282,7 +297,38 @@ function loadChart(idx) {
     }
     renderIf('ticker', idx);
   }, function () {});
+
+  // cena před hodinou z minutových svíček (než se nasbírá vlastní historie)
+  kraken('OHLC?pair=' + t.restPair + '&interval=1', function (rows) {
+    var target = Math.floor(new Date().getTime() / 1000) - 3600;
+    for (var k = rows.length - 1; k >= 0; k--) {
+      if (rows[k][0] <= target) { s.ref1hOhlc = parseFloat(rows[k][4]); break; }
+    }
+  }, function () {});
 }
+
+/* ============ UPOZORNĚNÍ NA POHYB CENY ============ */
+function ref1h(s) {
+  var target = new Date().getTime() - 3600000;
+  if (s.hist.length && s.hist[0].t <= target + 5 * 60000) {
+    for (var k = 0; k < s.hist.length; k++) if (s.hist[k].t >= target) return s.hist[k].p;
+  }
+  return s.ref1hOhlc;
+}
+
+function checkAlert(idx) {
+  var s = state[idx], r = ref1h(s), A = CONFIG.alert;
+  if (!r || s.price === null) return;
+  s.pct1h = (s.price - r) / r * 100;
+  var dir = s.pct1h >= A.percent ? 'up' : (s.pct1h <= -A.percent ? 'down' : null);
+  if (dir && dir !== s.alert) {
+    for (var k = 0; k < screens.length; k++) {          // skok na obrazovku s tickerem
+      if (screens[k].type === 'ticker' && screens[k].idx === idx && k !== scr) { showScreen(k); break; }
+    }
+  }
+  s.alert = dir;
+}
+
 
 /* ============ DATA: POČASÍ ============ */
 /* iOS 9 nedůvěřuje certifikátu Open-Meteo, proto předpověď stahuje GitHub
@@ -398,6 +444,10 @@ function renderTicker(idx) {
   $('logo').getElementsByTagName('circle')[0].setAttribute('fill', t.color);
   $('chartLabel').innerHTML = CONFIG.chartLabel;
   $('price').innerHTML = s.price === null ? '—' : fmt(s.price, t.decimals);
+  $('price').className = s.alert === 'up' ? 'alertUp' : (s.alert === 'down' ? 'alertDown' : '');
+  $('alertLine').className = s.alert === 'up' ? 'up' : 'down';
+  $('alertLine').innerHTML = s.alert ? (s.alert === 'up' ? '\u25B2 +' : '\u25BC \u2212') +
+    fmt(Math.abs(s.pct1h), 1) + '\u00A0% za 1 h' : '';
 
   var ch = $('change');
   if (s.price !== null && s.ref24) {
@@ -545,9 +595,12 @@ function drawChart(c, price, color) {
 }
 
 /* ============ NOČNÍ ZTMAVENÍ ============ */
-function checkDim() {
+function isNight() {
   var hr = new Date().getHours(), f = CONFIG.dim.from, t = CONFIG.dim.to;
-  var night = f > t ? (hr >= f || hr < t) : (hr >= f && hr < t);
+  return f > t ? (hr >= f || hr < t) : (hr >= f && hr < t);
+}
+function checkDim() {
+  var night = isNight();
   var el = $('dim');
   el.style.opacity = CONFIG.dim.opacity;
   el.className = night ? '' : 'hidden';
@@ -587,7 +640,7 @@ function safeReload() {
 function watchdog() {
   var now = new Date();
   if (now.getTime() - START < 15 * 60000) return;          // čerstvě načteno
-  if (now.getHours() === CONFIG.reloadHour && now.getMinutes() < 10) { safeReload(); return; }
+  if (CONFIG.reloadHour !== null && now.getHours() === CONFIG.reloadHour && now.getMinutes() < 10) { safeReload(); return; }
   var newest = 0;
   for (var k = 0; k < state.length; k++) if (state[k].updated > newest) newest = state[k].updated;
   if (now.getTime() - newest > 10 * 60000) safeReload();   // cena se 10 min neaktualizovala
@@ -595,9 +648,27 @@ function watchdog() {
 setInterval(watchdog, 60000);
 render();
 
-if (screens.length > 1) {
-  setInterval(function () { scr = (scr + 1) % screens.length; render(); }, CONFIG.screenSeconds * 1000);
+/* ============ STŘÍDÁNÍ OBRAZOVEK S PROLÍNÁNÍM ============ */
+var rotTimer = null, fading = false;
+function scheduleNext() {
+  clearTimeout(rotTimer);
+  if (screens.length > 1) {
+    rotTimer = setTimeout(function () { showScreen((scr + 1) % screens.length); }, CONFIG.screenSeconds * 1000);
+  }
 }
+function showScreen(n) {
+  if (fading) return;
+  fading = true;
+  var app = $('app');
+  app.style.opacity = '0';
+  setTimeout(function () {
+    scr = n; render();
+    app.style.opacity = '1';
+    fading = false;
+    scheduleNext();
+  }, 650);
+}
+scheduleNext();
 
 window.addEventListener('resize', render);
 window.addEventListener('orientationchange', function () { setTimeout(render, 300); });
